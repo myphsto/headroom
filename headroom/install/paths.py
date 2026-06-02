@@ -118,3 +118,39 @@ def openclaw_config_path() -> Path:
     """Return the OpenClaw config path."""
 
     return Path.home() / ".openclaw" / "openclaw.json"
+
+
+def opencode_config_path() -> Path:
+    """Return the opencode global config path."""
+
+    return Path.home() / ".config" / "opencode" / "opencode.json"
+
+
+def opencode_plugins_path() -> Path:
+    """Return the opencode global plugins directory."""
+
+    return Path.home() / ".config" / "opencode" / "plugins"
+
+
+def gemini_settings_path() -> Path:
+    """Return the Gemini CLI user settings path."""
+
+    return Path.home() / ".gemini" / "settings.json"
+
+
+def gemini_extensions_path() -> Path:
+    """Return the Gemini CLI extensions directory."""
+
+    return Path.home() / ".gemini" / "extensions"
+
+
+def windsurf_rules_path() -> Path:
+    """Return the Windsurf workspace rules directory."""
+
+    return Path.cwd() / ".windsurf" / "rules"
+
+
+def windsurf_global_rules_path() -> Path:
+    """Return the Windsurf global rules path."""
+
+    return Path.home() / ".codeium" / "windsurf" / "memories" / "global_rules.md"
