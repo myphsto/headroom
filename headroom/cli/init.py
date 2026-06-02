@@ -43,13 +43,16 @@ _GLOBAL_PROFILE = "init-user"
 _CLAUDE_HOOK_MARKER = "headroom-init-claude"
 _COPILOT_HOOK_MARKER = "headroom-init-copilot"
 _CODEX_HOOK_MARKER = "headroom-init-codex"
+_OPENCODE_HOOK_MARKER = "headroom-init-opencode"
+_GEMINI_HOOK_MARKER = "headroom-init-gemini"
+_WINDSURF_RULE_MARKER = "headroom-init-windsurf"
 _CODEX_PROVIDER_MARKER_START = "# --- Headroom init provider ---"
 _CODEX_PROVIDER_MARKER_END = "# --- end Headroom init provider ---"
 _CODEX_FEATURE_MARKER_START = "# --- Headroom init features ---"
 _CODEX_FEATURE_MARKER_END = "# --- end Headroom init features ---"
-_SUPPORTED_TARGETS = ("claude", "copilot", "codex", "openclaw")
-_LOCAL_TARGETS = {"claude", "codex"}
-_GLOBAL_TARGETS = {"claude", "copilot", "codex", "openclaw"}
+_SUPPORTED_TARGETS = ("claude", "copilot", "codex", "openclaw", "opencode", "gemini", "windsurf")
+_LOCAL_TARGETS = {"claude", "codex", "opencode", "windsurf"}
+_GLOBAL_TARGETS = {"claude", "copilot", "codex", "openclaw", "opencode", "gemini", "windsurf"}
 _STARTUP_READY_TIMEOUT_SECONDS = 15
 
 
@@ -109,6 +112,26 @@ def _copilot_config_path() -> Path:
 
 def _codex_hooks_path(global_scope: bool) -> Path:
     return (Path.home() if global_scope else Path.cwd()) / ".codex" / "hooks.json"
+
+
+def _opencode_hooks_path(global_scope: bool) -> Path:
+    return (
+        Path.home() / ".config" / "opencode" / "plugins"
+        if global_scope
+        else Path.cwd() / ".opencode" / "plugins"
+    )
+
+
+def _gemini_hooks_path(global_scope: bool) -> Path:
+    return (
+        Path.home() / ".gemini"
+        if global_scope
+        else Path.cwd() / ".gemini"
+    )
+
+
+def _windsurf_rules_path_local() -> Path:
+    return Path.cwd() / ".windsurf" / "rules"
 
 
 def _claude_scope_path(global_scope: bool) -> Path:
@@ -374,6 +397,72 @@ def _ensure_codex_hooks(path: Path, profile: str) -> None:
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def _ensure_opencode_hooks(path: Path, profile: str) -> None:
+    logger.debug("ensure opencode hooks: %s (profile=%s)", path, profile)
+    command = f"{_hook_command('--profile', profile)} --marker {_OPENCODE_HOOK_MARKER}"
+    plugin_file = path / "headroom-plugin.js"
+    repo_root = Path(__file__).resolve().parents[2]
+    source_plugin = repo_root / "plugins" / "headroom-agent-hooks" / ".opencode" / "plugin" / "headroom-plugin.js"
+    if source_plugin.exists():
+        shutil.copy2(str(source_plugin), str(plugin_file))
+
+
+def _ensure_gemini_hooks(path: Path, profile: str) -> None:
+    logger.debug("ensure gemini hooks: %s (profile=%s)", path, profile)
+    command = f"{_hook_command('--profile', profile)} --marker {_GEMINI_HOOK_MARKER}"
+    hooks_file = path / "settings.json"
+    payload = _json_file(hooks_file)
+    hooks = dict(payload.get("hooks") or {}) if isinstance(payload.get("hooks"), dict) else {}
+
+    for event, matcher in (
+        ("SessionStart", "startup|resume"),
+        ("BeforeTool", "run_shell_command"),
+    ):
+        entries = list(hooks.get(event) or []) if isinstance(hooks.get(event), list) else []
+        retained = [
+            entry
+            for entry in entries
+            if not (
+                isinstance(entry, dict) and _GEMINI_HOOK_MARKER in str(entry.get("command", ""))
+            )
+        ]
+        retained.append(
+            {
+                "matcher": matcher,
+                "hooks": [
+                    {
+                        "name": "headroom-ensure",
+                        "type": "command",
+                        "command": command,
+                        "timeout": 15000,
+                    }
+                ],
+            }
+        )
+        hooks[event] = retained
+    payload["hooks"] = hooks
+    _write_json(hooks_file, payload)
+
+
+def _ensure_windsurf_rule(path: Path, port: int) -> None:
+    logger.debug("ensure windsurf rule: %s (port=%s)", path, port)
+    rule_file = path / "headroom.md"
+    rule_content = (
+        "---\n"
+        "trigger: always_on\n"
+        "---\n"
+        "\n"
+        "# Headroom Compression Proxy\n"
+        "\n"
+        "When making external API calls or tool calls that could benefit from context compression,\n"
+        "be aware that the Headroom compression proxy may be available.\n"
+        "\n"
+        f"The proxy is running at http://127.0.0.1:{port}/v1.\n"
+    )
+    path.mkdir(parents=True, exist_ok=True)
+    rule_file.write_text(rule_content)
 
 
 def _manifest_changed(
@@ -721,6 +810,38 @@ def _init_openclaw(*, global_scope: bool, port: int) -> None:
         raise SystemExit(result.returncode)
 
 
+def _init_opencode(*, global_scope: bool, profile: str, port: int) -> None:
+    plugins_path = _opencode_hooks_path(global_scope)
+    _ensure_opencode_hooks(plugins_path, profile)
+    click.echo(f"Configured OpenCode ({'user' if global_scope else 'local'} scope).")
+    click.echo("Restart OpenCode to activate Headroom plugin.")
+
+
+def _init_gemini(*, global_scope: bool, profile: str, port: int) -> None:
+    gemini_path = _gemini_hooks_path(global_scope)
+    _ensure_gemini_hooks(gemini_path, profile)
+    repo_root = Path(__file__).resolve().parents[2]
+    ext_source = repo_root / "plugins" / "headroom-agent-hooks" / ".gemini-extension"
+    if ext_source.exists():
+        ext_dest = (Path.home() / ".gemini" / "extensions" / "headroom") if global_scope else (Path.cwd() / ".gemini" / "extensions" / "headroom")
+        ext_dest.mkdir(parents=True, exist_ok=True)
+        for item in ext_source.iterdir():
+            if item.is_file():
+                shutil.copy2(str(item), str(ext_dest / item.name))
+            else:
+                shutil.copytree(str(item), str(ext_dest / item.name), dirs_exist_ok=True)
+    click.echo(f"Configured Gemini CLI ({'user' if global_scope else 'local'} scope).")
+    click.echo("Restart Gemini CLI to activate Headroom hooks.")
+
+
+def _init_windsurf(*, global_scope: bool, profile: str, port: int) -> None:
+    del profile
+    rules_path = _windsurf_rules_path_local()
+    _ensure_windsurf_rule(rules_path, port)
+    click.echo("Configured Windsurf workspace rules.")
+    click.echo("Restart Windsurf to activate Headroom proxy rule.")
+
+
 def _run_init_targets(
     *,
     targets: list[str],
@@ -760,6 +881,12 @@ def _run_init_targets(
             _init_codex(global_scope=global_scope, profile=profile, port=port)
         elif target == "openclaw":
             _init_openclaw(global_scope=global_scope, port=port)
+        elif target == "opencode":
+            _init_opencode(global_scope=global_scope, profile=profile, port=port)
+        elif target == "gemini":
+            _init_gemini(global_scope=global_scope, profile=profile, port=port)
+        elif target == "windsurf":
+            _init_windsurf(global_scope=global_scope, profile=profile, port=port)
 
     # Register the headroom MCP server with every targeted agent that has
     # a registrar implemented. Wave 1 covers Claude Code; subsequent waves
@@ -910,6 +1037,51 @@ def init_openclaw(ctx: click.Context) -> None:
     """Install the durable OpenClaw Headroom plugin."""
     _run_init_targets(
         targets=["openclaw"],
+        global_scope=bool(_ctx_value(ctx, "global_scope")),
+        port=int(_ctx_value(ctx, "port") or 8787),
+        backend=str(_ctx_value(ctx, "backend") or "anthropic"),
+        anyllm_provider=_ctx_value(ctx, "anyllm_provider"),
+        region=_ctx_value(ctx, "region"),
+        memory=bool(_ctx_value(ctx, "memory")),
+    )
+
+
+@init.command("opencode")
+@click.pass_context
+def init_opencode(ctx: click.Context) -> None:
+    """Install OpenCode durable plugin and proxy routing."""
+    _run_init_targets(
+        targets=["opencode"],
+        global_scope=bool(_ctx_value(ctx, "global_scope")),
+        port=int(_ctx_value(ctx, "port") or 8787),
+        backend=str(_ctx_value(ctx, "backend") or "anthropic"),
+        anyllm_provider=_ctx_value(ctx, "anyllm_provider"),
+        region=_ctx_value(ctx, "region"),
+        memory=bool(_ctx_value(ctx, "memory")),
+    )
+
+
+@init.command("gemini")
+@click.pass_context
+def init_gemini(ctx: click.Context) -> None:
+    """Install Gemini CLI durable hooks and proxy routing."""
+    _run_init_targets(
+        targets=["gemini"],
+        global_scope=bool(_ctx_value(ctx, "global_scope")),
+        port=int(_ctx_value(ctx, "port") or 8787),
+        backend=str(_ctx_value(ctx, "backend") or "anthropic"),
+        anyllm_provider=_ctx_value(ctx, "anyllm_provider"),
+        region=_ctx_value(ctx, "region"),
+        memory=bool(_ctx_value(ctx, "memory")),
+    )
+
+
+@init.command("windsurf")
+@click.pass_context
+def init_windsurf(ctx: click.Context) -> None:
+    """Install Windsurf durable proxy rule."""
+    _run_init_targets(
+        targets=["windsurf"],
         global_scope=bool(_ctx_value(ctx, "global_scope")),
         port=int(_ctx_value(ctx, "port") or 8787),
         backend=str(_ctx_value(ctx, "backend") or "anthropic"),
