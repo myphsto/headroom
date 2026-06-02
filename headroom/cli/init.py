@@ -400,6 +400,16 @@ def _ensure_opencode_hooks(path: Path, profile: str) -> None:
     source_plugin = repo_root / "plugins" / "headroom-agent-hooks" / ".opencode" / "plugin" / "headroom-plugin.js"
     if source_plugin.exists():
         shutil.copy2(str(source_plugin), str(plugin_file))
+    # Register plugin in opencode config
+    config_path = Path.home() / ".config" / "opencode" / "opencode.jsonc"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = _json_file(config_path)
+    plugins = list(payload.get("plugin") or []) if isinstance(payload.get("plugin"), list) else []
+    plugin_entry = str(plugin_file)
+    if plugin_entry not in plugins:
+        plugins.append(plugin_entry)
+        payload["plugin"] = plugins
+        _write_json(config_path, payload)
 
 
 def _ensure_gemini_hooks(path: Path, profile: str) -> None:
