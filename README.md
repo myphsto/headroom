@@ -132,6 +132,9 @@ Reproduce: `python -m headroom.evals suite --tier 1` · [Full benchmarks & metho
 | Aider       | ●               | starts proxy + launches          |
 | Copilot CLI | ●               | starts proxy + launches          |
 | OpenClaw    | ●               | installs as ContextEngine plugin |
+| OpenCode    | ●               | JS plugin · `headroom init opencode` |
+| Gemini CLI  | ●               | extension · `headroom init gemini` |
+| Windsurf    | ●               | proxy rule · `headroom init windsurf` |
 
 Any OpenAI-compatible client works via `headroom proxy`. MCP-native: `headroom mcp install`.
 
