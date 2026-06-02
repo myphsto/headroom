@@ -403,6 +403,7 @@ def _ensure_opencode_hooks(path: Path, profile: str) -> None:
     logger.debug("ensure opencode hooks: %s (profile=%s)", path, profile)
     command = f"{_hook_command('--profile', profile)} --marker {_OPENCODE_HOOK_MARKER}"
     plugin_file = path / "headroom-plugin.js"
+    path.mkdir(parents=True, exist_ok=True)
     repo_root = Path(__file__).resolve().parents[2]
     source_plugin = repo_root / "plugins" / "headroom-agent-hooks" / ".opencode" / "plugin" / "headroom-plugin.js"
     if source_plugin.exists():
