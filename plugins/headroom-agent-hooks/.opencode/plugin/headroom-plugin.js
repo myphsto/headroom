@@ -2,9 +2,19 @@
  * Headroom plugin for OpenCode
  * Ensures the Headroom compression proxy is running before tool execution.
  */
+import { execSync } from "child_process";
+
 export const HeadroomPlugin = async ({ project, client, $, directory, worktree }) => {
   const HEADROOM_MARKER = "headroom-init-opencode";
   let proxyStarted = false;
+
+  // Resolve headroom binary path — works regardless of shell PATH
+  let headroomBin = null;
+  try {
+    headroomBin = execSync("which headroom", { encoding: "utf-8", timeout: 3000 }).trim();
+  } catch {
+    headroomBin = null;
+  }
 
   async function ensureHeadroomRunning() {
     if (proxyStarted) return;
@@ -22,8 +32,19 @@ export const HeadroomPlugin = async ({ project, client, $, directory, worktree }
       // Health check failed, try to start headroom
     }
 
+    if (!headroomBin) {
+      await client.app.log({
+        body: {
+          service: "headroom-plugin",
+          level: "warn",
+          message: "headroom binary not found in PATH; cannot ensure proxy",
+        },
+      });
+      return;
+    }
+
     try {
-      await $`headroom init hook ensure --marker ${HEADROOM_MARKER}`
+      await $`${headroomBin} init hook ensure --marker ${HEADROOM_MARKER}`
         .nothrow()
         .timeout(15000);
       proxyStarted = true;
@@ -39,7 +60,7 @@ export const HeadroomPlugin = async ({ project, client, $, directory, worktree }
   }
 
   return {
-    "session.created": async () => {
+    "session.created": async ({ event }) => {
       await ensureHeadroomRunning();
       await client.app.log({
         body: {
