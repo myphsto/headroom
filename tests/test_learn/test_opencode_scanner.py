@@ -175,7 +175,7 @@ class TestProjectDiscovery:
 
         assert len(projects) == 1
         assert projects[0].project_path == project_dir
-        assert projects[0].name == "myproject"
+        assert projects[0].name == "test-project"
 
 
 class TestSessionScanning:
