@@ -1,0 +1,6 @@
+{
+  "name": "headroom",
+  "version": "0.22.3",
+  "description": "Headroom compression proxy integration for Gemini CLI. Ensures the local Headroom runtime is available and routes API calls through the compression proxy.",
+  "contextFileName": "GEMINI.md"
+}

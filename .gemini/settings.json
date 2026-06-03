@@ -1,0 +1,30 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "name": "headroom-ensure",
+            "type": "command",
+            "command": "/home/jcaven/projects/headroom/.venv/bin/headroom init hook ensure --profile init-headroom-75221799 --marker headroom-init-gemini",
+            "timeout": 15000
+          }
+        ]
+      }
+    ],
+    "BeforeTool": [
+      {
+        "matcher": "run_shell_command",
+        "hooks": [
+          {
+            "name": "headroom-ensure",
+            "type": "command",
+            "command": "/home/jcaven/projects/headroom/.venv/bin/headroom init hook ensure --profile init-headroom-75221799 --marker headroom-init-gemini",
+            "timeout": 15000
+          }
+        ]
+      }
+    ]
+  }
+}

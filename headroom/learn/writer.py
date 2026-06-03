@@ -293,3 +293,28 @@ class GeminiWriter(ContextWriter):
             gemini_md.write_text(full_content, encoding="utf-8")
 
         return result
+
+
+class OpenCodeWriter(ContextWriter):
+    """Writes learned patterns to AGENTS.md for OpenCode."""
+
+    def write(
+        self,
+        recommendations: list[Recommendation],
+        project: ProjectInfo,
+        dry_run: bool = True,
+    ) -> WriteResult:
+        result = WriteResult()
+        result.dry_run = dry_run
+
+        if not recommendations:
+            return result
+
+        agents_md = project.context_file or (project.project_path / "AGENTS.md")
+        full_content = _merge_into_file(agents_md, recommendations)
+        result.add(agents_md, full_content)
+        if not dry_run:
+            agents_md.parent.mkdir(parents=True, exist_ok=True)
+            agents_md.write_text(full_content, encoding="utf-8")
+
+        return result

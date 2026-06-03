@@ -26,12 +26,13 @@ def _clean_registry():
 
 
 class TestBuiltinDiscovery:
-    def test_discovers_three_builtin_plugins(self):
+    def test_discovers_builtin_plugins(self):
         reg = get_registry()
         assert "claude" in reg
         assert "codex" in reg
         assert "gemini" in reg
-        assert len(reg) >= 3
+        assert "opencode" in reg
+        assert len(reg) >= 4
 
     def test_all_plugins_are_learn_plugins(self):
         for name, plugin in get_registry().items():
@@ -77,6 +78,7 @@ class TestAutoDetect:
             patch.object(get_registry()["claude"], "detect", return_value=False),
             patch.object(get_registry()["codex"], "detect", return_value=False),
             patch.object(get_registry()["gemini"], "detect", return_value=False),
+            patch.object(get_registry()["opencode"], "detect", return_value=False),
         ):
             assert auto_detect_plugins() == []
 
@@ -88,6 +90,7 @@ class TestAvailableNames:
         assert "claude" in names
         assert "codex" in names
         assert "gemini" in names
+        assert "opencode" in names
 
 
 class TestExternalPlugin:

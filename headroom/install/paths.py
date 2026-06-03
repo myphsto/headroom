@@ -123,7 +123,7 @@ def openclaw_config_path() -> Path:
 def opencode_config_path() -> Path:
     """Return the opencode global config path."""
 
-    return Path.home() / ".config" / "opencode" / "opencode.json"
+    return Path.home() / ".config" / "opencode" / "opencode.jsonc"
 
 
 def opencode_plugins_path() -> Path:
