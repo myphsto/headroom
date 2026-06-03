@@ -26,6 +26,13 @@ from headroom.providers.copilot.install import (
     build_install_env as _build_copilot_install_env,
 )
 from headroom.providers.cursor.install import build_install_env as _build_cursor_install_env
+from headroom.providers.gemini.install import (
+    apply_provider_scope as _apply_gemini_provider_scope,
+)
+from headroom.providers.gemini.install import build_install_env as _build_gemini_install_env
+from headroom.providers.gemini.install import (
+    revert_provider_scope as _revert_gemini_provider_scope,
+)
 from headroom.providers.openclaw.install import (
     apply_provider_scope as _apply_openclaw_provider_scope,
 )
@@ -51,6 +58,7 @@ _ENV_BUILDERS: dict[str, _InstallEnvBuilder] = {
     "aider": _build_aider_install_env,
     "cursor": _build_cursor_install_env,
     "opencode": _build_opencode_install_env,
+    "gemini": _build_gemini_install_env,
 }
 
 _PROVIDER_SCOPE_HANDLERS: dict[str, tuple[_ProviderScopeApplier, _ProviderScopeReverter]] = {
@@ -58,6 +66,7 @@ _PROVIDER_SCOPE_HANDLERS: dict[str, tuple[_ProviderScopeApplier, _ProviderScopeR
     "codex": (_apply_codex_provider_scope, _revert_codex_provider_scope),
     "openclaw": (_apply_openclaw_provider_scope, _revert_openclaw_provider_scope),
     "opencode": (_apply_opencode_provider_scope, _revert_opencode_provider_scope),
+    "gemini": (_apply_gemini_provider_scope, _revert_gemini_provider_scope),
 }
 
 
