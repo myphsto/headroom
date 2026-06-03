@@ -46,6 +46,13 @@ from headroom.providers.opencode.install import build_install_env as _build_open
 from headroom.providers.opencode.install import (
     revert_provider_scope as _revert_opencode_provider_scope,
 )
+from headroom.providers.windsurf.install import (
+    apply_provider_scope as _apply_windsurf_provider_scope,
+)
+from headroom.providers.windsurf.install import build_install_env as _build_windsurf_install_env
+from headroom.providers.windsurf.install import (
+    revert_provider_scope as _revert_windsurf_provider_scope,
+)
 
 _InstallEnvBuilder = Callable[..., dict[str, str]]
 _ProviderScopeApplier = Callable[[DeploymentManifest], ManagedMutation | None]
@@ -59,6 +66,7 @@ _ENV_BUILDERS: dict[str, _InstallEnvBuilder] = {
     "cursor": _build_cursor_install_env,
     "opencode": _build_opencode_install_env,
     "gemini": _build_gemini_install_env,
+    "windsurf": _build_windsurf_install_env,
 }
 
 _PROVIDER_SCOPE_HANDLERS: dict[str, tuple[_ProviderScopeApplier, _ProviderScopeReverter]] = {
@@ -67,6 +75,7 @@ _PROVIDER_SCOPE_HANDLERS: dict[str, tuple[_ProviderScopeApplier, _ProviderScopeR
     "openclaw": (_apply_openclaw_provider_scope, _revert_openclaw_provider_scope),
     "opencode": (_apply_opencode_provider_scope, _revert_opencode_provider_scope),
     "gemini": (_apply_gemini_provider_scope, _revert_gemini_provider_scope),
+    "windsurf": (_apply_windsurf_provider_scope, _revert_windsurf_provider_scope),
 }
 
 
