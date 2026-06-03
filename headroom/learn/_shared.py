@@ -97,6 +97,7 @@ def is_error_content(content: str) -> bool:
 # Plugins can use normalize_tool_name() or extend this map for custom tools.
 _TOOL_NAME_MAP: dict[str, str] = {
     # Shell / command execution
+    "bash": "Bash",
     "shell": "Bash",
     "run_shell_command": "Bash",
     "execute_command": "Bash",
@@ -105,25 +106,28 @@ _TOOL_NAME_MAP: dict[str, str] = {
     "run_command": "Bash",
     "run_terminal_command": "Bash",
     # File reading
+    "read": "Read",
     "read_file": "Read",
     "read_many_files": "Read",
     "readfile": "Read",
     "view_file": "Read",
     "cat": "Read",
     # File writing
+    "write": "Write",
     "write_file": "Write",
     "write_new_file": "Write",
     "create_file": "Write",
     "writefile": "Write",
     # File editing
+    "edit": "Edit",
     "edit_file": "Edit",
     "replace_in_file": "Edit",
     "editfile": "Edit",
     "apply_diff": "Edit",
     # File search / glob
+    "glob": "Glob",
     "search_files": "Glob",
     "find_files": "Glob",
-    "glob": "Glob",
     "list_directory": "Glob",
     "list_dir": "Glob",
     # Text search / grep
@@ -133,6 +137,7 @@ _TOOL_NAME_MAP: dict[str, str] = {
     "codebase_search": "Grep",
     # Web
     "browser": "WebFetch",
+    "web_fetch": "WebFetch",
     "web_search": "WebSearch",
 }
 
