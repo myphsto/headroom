@@ -1,0 +1,32 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "name": "headroom-ensure",
+            "type": "command",
+            "command": "headroom init hook ensure --marker headroom-init-gemini",
+            "timeout": 15000,
+            "description": "Ensure Headroom compression proxy is running"
+          }
+        ]
+      }
+    ],
+    "BeforeTool": [
+      {
+        "matcher": "run_shell_command",
+        "hooks": [
+          {
+            "name": "headroom-ensure-before-tool",
+            "type": "command",
+            "command": "headroom init hook ensure --marker headroom-init-gemini",
+            "timeout": 15000,
+            "description": "Ensure Headroom proxy before shell execution"
+          }
+        ]
+      }
+    ]
+  }
+}

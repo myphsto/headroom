@@ -627,7 +627,7 @@ class TestCallCliLlm:
         )
         _call_cli_llm("test digest", "gemini-cli")
         cmd = mock_run.call_args[0][0]
-        assert cmd == ["gemini", "-p"]
+        assert cmd == ["gemini", "-p", ""]
 
     @patch("headroom.learn.analyzer.subprocess.run")
     def test_cli_nonzero_exit_raises(self, mock_run: MagicMock):

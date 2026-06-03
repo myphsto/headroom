@@ -46,7 +46,7 @@ _MAX_DIGEST_TOKENS = 80_000  # Budget for the digest (leave room for prompt + ou
 # Each entry: (binary_name, model_identifier, command_prefix)
 _CLI_BACKENDS: list[tuple[str, str, list[str]]] = [
     ("claude", "claude-cli", ["claude", "-p"]),
-    ("gemini", "gemini-cli", ["gemini", "-p"]),
+    ("gemini", "gemini-cli", ["gemini", "-p", ""]),
     ("codex", "codex-cli", ["codex", "exec"]),
 ]
 

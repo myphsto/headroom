@@ -101,6 +101,7 @@ class DeploymentManifest:
     host: str
     backend: str
     anyllm_provider: str | None = None
+    openai_api_url: str | None = None
     region: str | None = None
     proxy_mode: str = "token"
     memory_enabled: bool = False

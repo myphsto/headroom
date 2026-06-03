@@ -18,6 +18,7 @@ from .models import (
     SupervisorKind,
     ToolTarget,
 )
+from headroom.install.paths import opencode_config_path
 from .paths import validate_profile_name
 
 SUPPORTED_TARGETS = [
@@ -27,6 +28,7 @@ SUPPORTED_TARGETS = [
     ToolTarget.AIDER,
     ToolTarget.CURSOR,
     ToolTarget.OPENCLAW,
+    ToolTarget.OPENCODE,
 ]
 PROVIDER_SCOPE_TARGETS = [
     ToolTarget.CLAUDE,
@@ -112,6 +114,7 @@ def build_manifest(
     port: int,
     backend: str,
     anyllm_provider: str | None,
+    openai_api_url: str | None = None,
     region: str | None,
     proxy_mode: str,
     memory_enabled: bool,
@@ -162,6 +165,8 @@ def build_manifest(
         proxy_args.extend(["--memory", "--memory-db-path", str(_paths.memory_db_path())])
     if anyllm_provider:
         proxy_args.extend(["--anyllm-provider", anyllm_provider])
+    if openai_api_url:
+        proxy_args.extend(["--openai-api-url", openai_api_url])
     if region:
         proxy_args.extend(["--region", region])
 
@@ -178,6 +183,7 @@ def build_manifest(
         host="127.0.0.1",
         backend=backend,
         anyllm_provider=anyllm_provider,
+        openai_api_url=openai_api_url,
         region=region,
         proxy_mode=proxy_mode,
         memory_enabled=memory_enabled,

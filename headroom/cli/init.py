@@ -16,9 +16,18 @@ from typing import Any
 import click
 
 from headroom.install.models import ConfigScope, InstallPreset, RuntimeKind, SupervisorKind
-from headroom.install.paths import claude_settings_path, codex_config_path, validate_profile_name
+from headroom.install.paths import (
+    claude_settings_path,
+    codex_config_path,
+    opencode_config_path,
+    validate_profile_name,
+)
 from headroom.install.planner import build_manifest
-from headroom.install.providers import _apply_unix_env_scope, _apply_windows_env_scope
+from headroom.install.providers import (
+    apply_mutations,
+    _apply_unix_env_scope,
+    _apply_windows_env_scope,
+)
 from headroom.install.runtime import (
     resolve_headroom_command,
     start_detached_agent,
@@ -49,6 +58,34 @@ _CODEX_FEATURE_MARKER_END = "# --- end Headroom init features ---"
 _SUPPORTED_TARGETS = ("claude", "copilot", "codex", "openclaw", "opencode", "gemini", "windsurf")
 _LOCAL_TARGETS = {"claude", "codex", "opencode", "windsurf"}
 _GLOBAL_TARGETS = {"claude", "copilot", "codex", "openclaw", "opencode", "gemini", "windsurf"}
+
+
+def _detect_opencode_openai_url() -> str | None:
+    """Detect the OpenAI-compatible baseURL from an existing OpenCode config.
+
+    Scans the provider section for any provider that has a baseURL configured
+    (typically an OpenAI-compatible endpoint). Returns None if not found.
+    """
+    path = opencode_config_path()
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+    providers = payload.get("provider")
+    if not isinstance(providers, dict):
+        return None
+    for provider_config in providers.values():
+        if not isinstance(provider_config, dict):
+            continue
+        options = provider_config.get("options", {})
+        if not isinstance(options, dict):
+            continue
+        base_url = options.get("baseURL")
+        if base_url and isinstance(base_url, str):
+            return base_url
+    return None
 
 
 def _command_string(parts: list[str]) -> str:
@@ -464,6 +501,7 @@ def _manifest_changed(
     port: int,
     backend: str,
     anyllm_provider: str | None,
+    openai_api_url: str | None,
     region: str | None,
     memory: bool,
 ) -> bool:
@@ -472,6 +510,7 @@ def _manifest_changed(
             getattr(existing, "port", port) != port,
             getattr(existing, "backend", backend) != backend,
             getattr(existing, "anyllm_provider", anyllm_provider) != anyllm_provider,
+            getattr(existing, "openai_api_url", openai_api_url) != openai_api_url,
             getattr(existing, "region", region) != region,
             getattr(existing, "memory_enabled", memory) != memory,
         ]
@@ -491,6 +530,14 @@ def _ensure_runtime_manifest(
     profile = _runtime_profile(global_scope)
     existing = load_manifest(profile)
     merged_targets = sorted(set(existing.targets if existing else []).union(targets))
+    openai_api_url = None
+    if "opencode" in merged_targets:
+        # Reuse existing openai_api_url from manifest to avoid reading
+        # the already-modified config file on subsequent inits
+        if existing and getattr(existing, "openai_api_url", None):
+            openai_api_url = existing.openai_api_url
+        else:
+            openai_api_url = _detect_opencode_openai_url()
     manifest = build_manifest(
         profile=profile,
         preset=InstallPreset.PERSISTENT_TASK.value,
@@ -501,6 +548,7 @@ def _ensure_runtime_manifest(
         port=port,
         backend=backend,
         anyllm_provider=anyllm_provider,
+        openai_api_url=openai_api_url,
         region=region,
         proxy_mode="token",
         memory_enabled=memory,
@@ -509,12 +557,13 @@ def _ensure_runtime_manifest(
     )
     manifest.supervisor_kind = SupervisorKind.NONE.value
     manifest.artifacts = []
-    manifest.mutations = existing.mutations if existing else []
+    manifest.mutations = apply_mutations(manifest)
     if existing is not None and _manifest_changed(
         existing,
         port=port,
         backend=backend,
         anyllm_provider=anyllm_provider,
+        openai_api_url=openai_api_url,
         region=region,
         memory=memory,
     ):
