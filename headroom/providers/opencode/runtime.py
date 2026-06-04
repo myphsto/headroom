@@ -18,7 +18,6 @@ def build_launch_env(
 ) -> tuple[dict[str, str], list[str]]:
     """Build environment variables for OpenCode through the local proxy."""
     env = dict(environ or os.environ)
-    base_url = proxy_base_url(port)
     # Opencode doesn't read OPENAI_BASE_URL — proxy routing is done via config injection
     env["HEADROOM_PROXY_PORT"] = str(port)
     return env, [f"HEADROOM_PROXY_PORT={port}"]
