@@ -979,6 +979,42 @@ def _strip_opencode_headroom_blocks(content: str) -> str:
     return content.lstrip("\n").rstrip() + "\n" if content.strip() else ""
 
 
+def _restore_opencode_provider_config() -> tuple[str, Path]:
+    """Undo ``_inject_opencode_provider_config`` for OpenCode's JSONC config.
+
+    Returns a tuple of ``(status, config_file)`` where status is one of:
+
+    * ``"restored"`` — a pre-wrap backup existed and was restored; backup
+      file has been removed.
+    * ``"cleaned"``  — no backup existed, but the Headroom-managed block was
+      found and stripped out (preserving surrounding user content).
+    * ``"removed"``  — the config file only contained Headroom-managed
+      content (created by wrap) and has been deleted.
+    * ``"noop"``     — nothing to undo; no Headroom marker and no backup.
+    """
+    config_file, backup_file = _opencode_config_paths()
+
+    # Case 1: pre-wrap snapshot exists — restore it exactly.
+    if backup_file.exists():
+        shutil.copy2(backup_file, config_file)
+        backup_file.unlink()
+        return "restored", config_file
+
+    # Case 2: no backup, but config file exists and has markers — strip them.
+    if config_file.exists():
+        original = config_file.read_text()
+        if _OPENCODE_TOP_LEVEL_MARKER in original or _OPENCODE_END_MARKER in original:
+            cleaned = _strip_opencode_headroom_blocks(original)
+            if not cleaned.strip():
+                config_file.unlink()
+                return "removed", config_file
+            config_file.write_text(cleaned)
+            return "cleaned", config_file
+
+    # Nothing to undo.
+    return "noop", config_file
+
+
 def _inject_opencode_provider_config(port: int) -> None:
     """Inject Headroom proxy routing into OpenCode's JSONC config.
 
@@ -3090,6 +3126,11 @@ def opencode(
                 agents_md = Path.cwd() / "AGENTS.md"
                 _inject_rtk_instructions(agents_md, verbose=verbose)
 
+    # Inject Headroom provider config so API traffic routes through the proxy.
+    # This must run BEFORE MCP registration because it rewrites the config file
+    # and would otherwise strip MCP marker comments written by the registrar.
+    _inject_opencode_provider_config(port)
+
     # Register headroom MCP server in opencode config
     if not no_mcp:
         from headroom.mcp_registry import OpenCodeRegistrar
@@ -3148,7 +3189,6 @@ def opencode(
             click.echo(f"  Warning: Claude memory import failed: {e}")
 
     if prepare_only:
-        _inject_opencode_provider_config(port)
         return
 
     opencode_bin = shutil.which("opencode")
@@ -3158,15 +3198,6 @@ def opencode(
         raise SystemExit(1)
 
     env, env_vars_display = _build_opencode_launch_env(port, os.environ)
-
-    # Inject Headroom provider config so API traffic routes through the proxy.
-    _inject_opencode_provider_config(port)
-    if memory:
-        mem_dir = Path.cwd() / ".headroom"
-        _inject_opencode_memory_mcp_config(
-            str(mem_dir / "memory.db"),
-            os.environ.get("USER", os.environ.get("USERNAME", "default")),
-        )
 
     _launch_tool(
         binary=opencode_bin,
@@ -4213,6 +4244,92 @@ def unwrap_codex(port: int, no_stop_proxy: bool) -> None:
 
     click.echo()
     click.echo("✓ Codex is no longer routed through the Headroom proxy.")
+    if not no_stop_proxy:
+        _echo_unwrap_proxy_stop_status(_stop_local_proxy_for_unwrap(port), port)
+    click.echo()
+
+
+# =============================================================================
+# OpenCode (unwrap)
+# =============================================================================
+
+
+@unwrap.command("opencode")
+@click.option("--port", "-p", default=8787, type=int, help="Proxy port (default: 8787)")
+@click.option("--no-stop-proxy", is_flag=True, help="Do not stop the local Headroom proxy")
+@click.option("--keep-mcp", is_flag=True, help="Keep Headroom MCP registrations")
+@click.option("--keep-rtk", is_flag=True, help="Keep rtk/lean-ctx instructions")
+def unwrap_opencode(
+    port: int,
+    no_stop_proxy: bool,
+    keep_mcp: bool,
+    keep_rtk: bool,
+) -> None:
+    """Undo durable setup from ``headroom wrap opencode``."""
+    click.echo()
+    click.echo("  ╔═══════════════════════════════════════════════╗")
+    click.echo("  ║          HEADROOM UNWRAP: OPENCODE            ║")
+    click.echo("  ╚═══════════════════════════════════════════════╝")
+    click.echo()
+
+    try:
+        status, config_file = _restore_opencode_provider_config()
+    except Exception as e:  # pragma: no cover - filesystem-level errors
+        raise click.ClickException(f"could not unwrap OpenCode config: {e}") from e
+
+    if status == "restored":
+        click.echo(f"  Restored prior {config_file} from pre-wrap backup.")
+    elif status == "cleaned":
+        click.echo(f"  Removed Headroom block from {config_file}; other content preserved.")
+    elif status == "removed":
+        click.echo(f"  Removed {config_file} (contained only Headroom-written config).")
+    else:
+        click.echo(f"  Nothing to undo: {config_file} has no Headroom wrap markers.")
+
+    if not keep_mcp:
+        from headroom.mcp_registry import OpenCodeRegistrar
+
+        registrar = OpenCodeRegistrar()
+        if registrar.detect():
+            removed_headroom = registrar.unregister_server("headroom")
+            removed_code_graph = registrar.unregister_server(_CBM_MCP_SERVER_NAME)
+            serena_status = _remove_headroom_installed_serena_mcp(registrar)
+            if removed_headroom:
+                click.echo("  Removed Headroom MCP retrieve tool from OpenCode.")
+            else:
+                click.echo("  Headroom MCP retrieve tool was not registered in OpenCode.")
+            if removed_code_graph:
+                click.echo("  Removed code graph MCP server from OpenCode.")
+            if serena_status == "removed":
+                click.echo("  Removed Headroom-installed Serena MCP server from OpenCode.")
+            elif serena_status == "failed":
+                click.echo("  Serena MCP server matched Headroom ledger but could not be removed.")
+        else:
+            click.echo("  OpenCode not detected; skipped MCP cleanup.")
+    else:
+        click.echo("  Kept OpenCode MCP registrations (--keep-mcp).")
+
+    if not keep_rtk:
+        agents_md = Path.cwd() / "AGENTS.md"
+        if agents_md.exists():
+            content = agents_md.read_text()
+            rtk_start = "<!-- headroom:rtk-instructions -->"
+            rtk_end = "<!-- /headroom:rtk-instructions -->"
+            if rtk_start in content and rtk_end in content:
+                start = content.index(rtk_start)
+                end = content.index(rtk_end, start) + len(rtk_end)
+                content = content[:start].rstrip("\n") + "\n" + content[end:].lstrip("\n")
+                agents_md.write_text(content)
+                click.echo("  Removed rtk/lean-ctx instructions from AGENTS.md.")
+            else:
+                click.echo("  No rtk/lean-ctx instructions found in AGENTS.md.")
+        else:
+            click.echo("  No AGENTS.md found; skipped rtk/lean-ctx cleanup.")
+    else:
+        click.echo("  Kept rtk/lean-ctx instructions (--keep-rtk).")
+
+    click.echo()
+    click.echo("✓ OpenCode is no longer routed through the Headroom proxy.")
     if not no_stop_proxy:
         _echo_unwrap_proxy_stop_status(_stop_local_proxy_for_unwrap(port), port)
     click.echo()
