@@ -3557,6 +3557,10 @@ def opencode(
                 agents_md = Path.cwd() / "AGENTS.md"
                 _inject_rtk_instructions(agents_md, verbose=verbose)
 
+                # Also inject into global ~/.config/opencode/AGENTS.md
+                global_agents = Path.home() / ".config" / "opencode" / "AGENTS.md"
+                _inject_rtk_instructions(global_agents, verbose=verbose)
+
     # Inject Headroom provider config so API traffic routes through the proxy.
     # This must run BEFORE MCP registration because it rewrites the config file
     # and would otherwise strip MCP marker comments written by the registrar.
