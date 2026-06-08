@@ -16,6 +16,7 @@ from headroom.config import (
     Block,
     CacheAlignerConfig,
     CachePrefixMetrics,
+    DEFAULT_EXCLUDE_TOOLS,
     HeadroomConfig,
     HeadroomMode,
     RelevanceScorerConfig,
@@ -483,3 +484,19 @@ class TestRequestMetrics:
         assert metrics2.block_breakdown == {}
         assert metrics2.waste_signals == {}
         assert metrics2.transforms_applied == []
+
+
+class TestDefaultExcludeTools:
+    """Tests for DEFAULT_EXCLUDE_TOOLS — must not exclude Bash."""
+
+    def test_bash_not_excluded(self):
+        """Bash tool outputs (build logs, test output) must not be excluded from compression."""
+        assert "Bash" not in DEFAULT_EXCLUDE_TOOLS, (
+            "Bash must not be in DEFAULT_EXCLUDE_TOOLS — its outputs are ideal compression targets"
+        )
+        assert "bash" not in DEFAULT_EXCLUDE_TOOLS
+
+    def test_read_glob_grep_write_edit_are_excluded(self):
+        """Read/Glob/Grep/Write/Edit tools must remain excluded."""
+        for tool in ("Read", "Glob", "Grep", "Write", "Edit"):
+            assert tool in DEFAULT_EXCLUDE_TOOLS, f"{tool} should be excluded"

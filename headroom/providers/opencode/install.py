@@ -15,8 +15,8 @@ from .runtime import proxy_base_url
 
 def build_install_env(*, port: int, backend: str) -> dict[str, str]:
     """Build the persistent install environment for OpenCode."""
-    del port, backend
-    return {}
+    del backend
+    return {"HEADROOM_PROXY_PORT": str(port)}
 
 
 def apply_provider_scope(manifest: DeploymentManifest) -> ManagedMutation | None:
