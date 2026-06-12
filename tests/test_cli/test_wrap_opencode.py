@@ -11,7 +11,6 @@ from unittest.mock import patch
 
 from click.testing import CliRunner
 
-from headroom.cli import wrap as wrap_mod
 from headroom.cli.main import main
 
 
@@ -28,11 +27,11 @@ def _set_test_home(monkeypatch, tmp_path: Path) -> None:
 
 def test_opencode_rtk_injected_into_project_agents_md(tmp_path: Path) -> None:
     """wrap opencode must inject rtk instructions into the project AGENTS.md."""
-    agents_md = tmp_path / "AGENTS.md"
-    agent_home = tmp_path / ".config" / "opencode"
+    _agents_md = tmp_path / "AGENTS.md"
+    _agent_home = tmp_path / ".config" / "opencode"
     runner = CliRunner()
 
-    with runner.isolated_filesystem(temp_dir=tmp_path) as td:
+    with runner.isolated_filesystem(temp_dir=tmp_path) as _td:
         with patch(
             "headroom.cli.wrap._ensure_rtk_binary", return_value="/usr/bin/rtk"
         ):
@@ -67,7 +66,7 @@ def test_opencode_rtk_injected_into_project_agents_md(tmp_path: Path) -> None:
 def test_opencode_rtk_injected_into_global_agents_md(monkeypatch, tmp_path: Path) -> None:
     """wrap opencode must inject rtk instructions into ~/.config/opencode/AGENTS.md."""
     _set_test_home(monkeypatch, tmp_path)
-    global_agents = tmp_path / ".config" / "opencode" / "AGENTS.md"
+    _global_agents = tmp_path / ".config" / "opencode" / "AGENTS.md"
     runner = CliRunner()
 
     with patch(
@@ -98,19 +97,19 @@ def test_opencode_rtk_injected_into_global_agents_md(monkeypatch, tmp_path: Path
         )
 
     assert result.exit_code == 0, result.output
-    assert global_agents.exists(), (
-        f"Global AGENTS.md not created at {global_agents}\n{result.output}"
+    assert _global_agents.exists(), (
+        f"Global AGENTS.md not created at {_global_agents}\n{result.output}"
     )
-    content = global_agents.read_text()
+    content = _global_agents.read_text()
     assert "rtk" in content.lower()
 
 
 def test_opencode_rtk_skipped_with_flag(monkeypatch, tmp_path: Path) -> None:
     """--no-rtk must skip RTK setup entirely."""
-    global_agents = tmp_path / ".config" / "opencode" / "AGENTS.md"
+    _global_agents = tmp_path / ".config" / "opencode" / "AGENTS.md"
     runner = CliRunner()
 
-    with runner.isolated_filesystem(temp_dir=tmp_path) as td:
+    with runner.isolated_filesystem(temp_dir=tmp_path) as _td:
         with patch(
             "headroom.cli.wrap._inject_opencode_provider_config"
         ):
@@ -149,7 +148,7 @@ def test_opencode_code_graph_flag_accepted(tmp_path: Path) -> None:
     """--code-graph must be accepted by wrap opencode without error."""
     runner = CliRunner()
 
-    with runner.isolated_filesystem(temp_dir=tmp_path) as td:
+    with runner.isolated_filesystem(temp_dir=tmp_path) as _td:
         with patch(
             "headroom.cli.wrap._ensure_rtk_binary", return_value="/usr/bin/rtk"
         ):

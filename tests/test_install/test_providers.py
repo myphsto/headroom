@@ -16,10 +16,14 @@ from headroom.providers.codex.install import apply_provider_scope as apply_codex
 from headroom.providers.codex.install import build_install_env as build_codex_install_env
 from headroom.providers.codex.install import revert_provider_scope as revert_codex_provider_scope
 from headroom.providers.copilot.install import build_install_env as build_copilot_install_env
-from headroom.providers.opencode.install import apply_provider_scope as apply_opencode_provider_scope
+from headroom.providers.opencode.install import (
+    apply_provider_scope as apply_opencode_provider_scope,
+)
 from headroom.providers.opencode.install import build_install_env as build_opencode_install_env
 from headroom.providers.opencode.install import install_plugin
-from headroom.providers.opencode.install import revert_provider_scope as revert_opencode_provider_scope
+from headroom.providers.opencode.install import (
+    revert_provider_scope as revert_opencode_provider_scope,
+)
 
 
 def _manifest(tmp_path: Path) -> DeploymentManifest:

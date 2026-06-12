@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from headroom.install.models import ConfigScope, DeploymentManifest, ManagedMutation, ToolTarget
-
 from headroom.install.paths import windsurf_rules_path
 
 

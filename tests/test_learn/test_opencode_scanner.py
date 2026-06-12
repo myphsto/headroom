@@ -102,7 +102,7 @@ def _create_test_db(
             )
 
     if tool_parts:
-        for i, tp in enumerate(tool_parts):
+        for tp in tool_parts:
             msg_idx += 1
             msg_id = f"msg_{msg_idx}"
             msg_data = json.dumps({"role": "assistant", "time": 1000})

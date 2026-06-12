@@ -26,9 +26,9 @@ from headroom.install.paths import (
 )
 from headroom.install.planner import build_manifest
 from headroom.install.providers import (
-    apply_mutations,
     _apply_unix_env_scope,
     _apply_windows_env_scope,
+    apply_mutations,
 )
 from headroom.install.runtime import (
     acquire_runtime_start_lock,
@@ -438,7 +438,6 @@ def _ensure_codex_hooks(path: Path, profile: str) -> None:
 
 def _ensure_opencode_hooks(path: Path, profile: str) -> None:
     logger.debug("ensure opencode hooks: %s (profile=%s)", path, profile)
-    command = f"{_hook_command('--profile', profile)} --marker {_OPENCODE_HOOK_MARKER}"
     path.mkdir(parents=True, exist_ok=True)
     plugin_file = path / "headroom-plugin.js"
     repo_root = Path(__file__).resolve().parents[2]

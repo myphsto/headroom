@@ -39,7 +39,6 @@ if sys.platform == "win32" and hasattr(sys.stdout, "buffer"):
 import click
 
 from headroom._version import __version__ as _HEADROOM_VERSION
-from headroom.copilot_auth import DEFAULT_API_URL as COPILOT_API_URL
 from headroom.copilot_auth import (
     has_oauth_auth,
     resolve_client_bearer_token,
@@ -90,8 +89,8 @@ from headroom.providers.openclaw import (
 from headroom.providers.openclaw import (
     normalize_gateway_provider_ids as _normalize_openclaw_gateway_provider_ids_impl,
 )
-from headroom.proxy.project_context import with_project_prefix as _with_project_prefix
 from headroom.providers.opencode import build_launch_env as _build_opencode_launch_env
+from headroom.proxy.project_context import with_project_prefix as _with_project_prefix
 
 from .main import main
 

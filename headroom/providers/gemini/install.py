@@ -8,7 +8,6 @@ from pathlib import Path
 
 from headroom.install.models import ConfigScope, DeploymentManifest, ManagedMutation, ToolTarget
 from headroom.install.paths import gemini_extensions_path, gemini_settings_path
-
 from headroom.providers.codex.runtime import proxy_base_url
 
 

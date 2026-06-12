@@ -18,7 +18,6 @@ from .models import (
     SupervisorKind,
     ToolTarget,
 )
-from headroom.install.paths import opencode_config_path
 from .paths import validate_profile_name
 
 SUPPORTED_TARGETS = [
