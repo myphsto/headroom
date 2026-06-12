@@ -86,7 +86,7 @@ pub fn compress_gemini_request(
     }
 
     let model = parsed
-        .get("model") // Note: In actual Gemini requests, the model is often in the URL. 
+        .get("model") // Note: In actual Gemini requests, the model is often in the URL.
         .and_then(Value::as_str)
         .unwrap_or(DEFAULT_MODEL);
 

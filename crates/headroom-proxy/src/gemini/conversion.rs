@@ -1,7 +1,7 @@
 //! Conversion layer between Gemini API and internal proxy representation.
 //!
 //! This module allows the proxy to treat Gemini requests as a sequence of messages,
-//! enabling the use of standard compression pipelines while preserving complex 
+//! enabling the use of standard compression pipelines while preserving complex
 //! content (images, files, function calls) that cannot be compressed.
 
 use crate::gemini::models::*;
@@ -41,15 +41,22 @@ pub fn gemini_to_internal(req: &GeminiRequest) -> ConversionResult {
         let text = extract_text(&content.parts);
         if !text.is_empty() {
             // Map Gemini role "model" -> internal "assistant"
-            let role = if content.role == "model" { "assistant" } else { &content.role };
+            let role = if content.role == "model" {
+                "assistant"
+            } else {
+                &content.role
+            };
             messages.push(json!({ "role": role, "content": text }));
         }
     }
 
-    ConversionResult { messages, preserved_indices }
+    ConversionResult {
+        messages,
+        preserved_indices,
+    }
 }
 
-/// Rebuilds the Gemini request body using optimized internal messages and 
+/// Rebuilds the Gemini request body using optimized internal messages and
 /// interleaved original preserved content.
 pub fn internal_to_gemini(
     optimized_messages: Vec<Value>,
@@ -61,7 +68,7 @@ pub fn internal_to_gemini(
 
     // Note: System instructions are usually handled separately or kept as-is.
     // This logic focuses on the `contents` array.
-    
+
     // Filter out system messages from optimized list for content reconstruction
     let user_assistant_msgs: Vec<Value> = optimized_messages
         .into_iter()
@@ -75,12 +82,18 @@ pub fn internal_to_gemini(
         } else if current_msg_idx < user_assistant_msgs.len() {
             // Use optimized text content
             let msg = &user_assistant_msgs[current_msg_idx];
-            let role = if msg["role"] == "assistant" { "model" } else { msg["role"].as_str().unwrap_or("user") };
+            let role = if msg["role"] == "assistant" {
+                "model"
+            } else {
+                msg["role"].as_str().unwrap_or("user")
+            };
             let text = msg["content"].as_str().unwrap_or("");
 
             final_contents.push(GeminiContent {
                 role: role.to_string(),
-                parts: vec![GeminiPart::Text { text: text.to_string() }],
+                parts: vec![GeminiPart::Text {
+                    text: text.to_string(),
+                }],
             });
             current_msg_idx += 1;
         } else {
@@ -93,8 +106,15 @@ pub fn internal_to_gemini(
 }
 
 fn extract_text(parts: &[GeminiPart]) -> String {
-    parts.iter()
-        .filter_map(|p| if let GeminiPart::Text { text } = p { Some(text) } else { None })
+    parts
+        .iter()
+        .filter_map(|p| {
+            if let GeminiPart::Text { text } = p {
+                Some(text)
+            } else {
+                None
+            }
+        })
         .cloned()
         .collect::<Vec<_>>()
         .join(" ")

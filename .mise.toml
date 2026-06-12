@@ -1,4 +1,5 @@
 [tools]
 python = "3.11"
 rust = "1.95.0"
-uv = "latest"
+hk = "1.48.0"
+uv = "0.11.20"

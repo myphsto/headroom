@@ -2329,7 +2329,7 @@ struct GeminiBodyView<'a> {
 #[derive(Deserialize)]
 struct GeminiMessageView<'a> {
     #[serde(borrow)]
-    role: Option<&'a str>,
+    _role: Option<&'a str>,
     #[serde(borrow)]
     parts: Option<Vec<&'a RawValue>>,
 }
@@ -2342,12 +2342,18 @@ struct GeminiPartView<'a> {
 
 fn plan_gemini_message(body_raw: &[u8], msg_idx: usize) -> Result<Vec<GeminiPlanSlot>, PlanError> {
     let body_str = std::str::from_utf8(body_raw).map_err(|_| PlanError::ParseFailed)?;
-    let body: GeminiBodyView<'_> = serde_json::from_str(body_str).map_err(|_| PlanError::ParseFailed)?;
-    let msg_raw = body.contents.get(msg_idx).ok_or(PlanError::TargetOutOfBounds)?;
+    let body: GeminiBodyView<'_> =
+        serde_json::from_str(body_str).map_err(|_| PlanError::ParseFailed)?;
+    let msg_raw = body
+        .contents
+        .get(msg_idx)
+        .ok_or(PlanError::TargetOutOfBounds)?;
 
-    let msg_offset_in_body = bytes_offset_of(body_str, msg_raw.get()).ok_or(PlanError::OffsetMissing)?;
-    let msg_view: GeminiMessageView<'_> = serde_json::from_str(msg_raw.get()).map_err(|_| PlanError::ParseFailed)?;
-    let Some(parts_raw_vec) = msg_view.parts else {
+    let msg_offset_in_body =
+        bytes_offset_of(body_str, msg_raw.get()).ok_or(PlanError::OffsetMissing)?;
+    let msg_view: GeminiMessageView<'_> =
+        serde_json::from_str(msg_raw.get()).map_err(|_| PlanError::ParseFailed)?;
+    let Some(_parts_raw_vec) = msg_view.parts else {
         return Ok(Vec::new());
     };
 
@@ -2359,35 +2365,42 @@ fn plan_gemini_message(body_raw: &[u8], msg_idx: usize) -> Result<Vec<GeminiPlan
         #[serde(borrow)]
         parts: Option<&'a RawValue>,
     }
-    let wrapper: PartsWrapper<'_> = serde_json::from_str(msg_raw.get()).map_err(|_| PlanError::ParseFailed)?;
+    let wrapper: PartsWrapper<'_> =
+        serde_json::from_str(msg_raw.get()).map_err(|_| PlanError::ParseFailed)?;
     let Some(parts_raw) = wrapper.parts else {
         return Ok(Vec::new());
     };
 
-    let parts_offset_in_msg = bytes_offset_of(msg_raw.get(), parts_raw.get()).ok_or(PlanError::OffsetMissing)?;
+    let parts_offset_in_msg =
+        bytes_offset_of(msg_raw.get(), parts_raw.get()).ok_or(PlanError::OffsetMissing)?;
     let parts_offset_in_body = msg_offset_in_body + parts_offset_in_msg;
 
     // Now we can't easily get offsets of elements inside the RawValue array without parsing it as a Vec<&RawValue>.
     // We do that by using serde_json::from_str on the parts_raw.get().
-    let parts: Vec<&RawValue> = serde_json::from_str(parts_raw.get()).map_err(|_| PlanError::ParseFailed)?;
+    let parts: Vec<&RawValue> =
+        serde_json::from_str(parts_raw.get()).map_err(|_| PlanError::ParseFailed)?;
 
     let mut slots = Vec::with_capacity(parts.len());
     for (part_idx, part_raw) in parts.iter().enumerate() {
-        let part_view: GeminiPartView<'_> = serde_json::from_str(part_raw.get()).map_err(|_| PlanError::ParseFailed)?;
+        let part_view: GeminiPartView<'_> =
+            serde_json::from_str(part_raw.get()).map_err(|_| PlanError::ParseFailed)?;
         let Some(text_raw) = part_view.text else {
             continue;
         };
 
         // Offset of the part inside the parts array
-        let part_offset_in_parts = bytes_offset_of(parts_raw.get(), part_raw.get()).ok_or(PlanError::OffsetMissing)?;
+        let part_offset_in_parts =
+            bytes_offset_of(parts_raw.get(), part_raw.get()).ok_or(PlanError::OffsetMissing)?;
         // Offset of the text field inside the part
-        let text_offset_in_part = bytes_offset_of(part_raw.get(), text_raw.get()).ok_or(PlanError::OffsetMissing)?;
+        let text_offset_in_part =
+            bytes_offset_of(part_raw.get(), text_raw.get()).ok_or(PlanError::OffsetMissing)?;
 
         let text_str = text_raw.get();
         if !text_str.starts_with('"') {
             continue;
         }
-        let unescaped: String = serde_json::from_str(text_str).map_err(|_| PlanError::ParseFailed)?;
+        let unescaped: String =
+            serde_json::from_str(text_str).map_err(|_| PlanError::ParseFailed)?;
 
         let text_start_in_body = parts_offset_in_body + part_offset_in_parts + text_offset_in_part;
         let text_end_in_body = text_start_in_body + text_str.len();
@@ -3097,7 +3110,10 @@ mod openai_responses_tests {
         match &out {
             LiveZoneOutcome::NoChange { manifest } => {
                 assert_eq!(manifest.messages_total, 1);
-                assert!(manifest.block_outcomes.iter().all(|b| matches!(b.action, BlockAction::BelowByteThreshold { .. })));
+                assert!(manifest
+                    .block_outcomes
+                    .iter()
+                    .all(|b| matches!(b.action, BlockAction::BelowByteThreshold { .. })));
             }
             _ => panic!("expected NoChange"),
         }
@@ -3109,7 +3125,9 @@ mod openai_responses_tests {
         // PlainText compression (Kompress) is not yet wired in the Rust backend (TODO PR-B4).
         let mut log = String::new();
         for i in 0..100 {
-            log.push_str(&format!("[2024-01-01 00:00:00] INFO compile.rs:42 building module foo_{i}\n"));
+            log.push_str(&format!(
+                "[2024-01-01 00:00:00] INFO compile.rs:42 building module foo_{i}\n"
+            ));
         }
         let b = body(json!({
             "contents": [{
@@ -3139,7 +3157,11 @@ mod openai_responses_tests {
         };
 
         // Indices of blocks planned: 1 and 2. Index 0 should be frozen.
-        let indices: Vec<usize> = manifest.block_outcomes.iter().map(|b| b.message_index).collect();
+        let indices: Vec<usize> = manifest
+            .block_outcomes
+            .iter()
+            .map(|b| b.message_index)
+            .collect();
         assert!(indices.contains(&1));
         assert!(indices.contains(&2));
         assert!(!indices.contains(&0));
@@ -3161,7 +3183,11 @@ mod openai_responses_tests {
             LiveZoneOutcome::Modified { manifest, .. } => manifest,
         };
         // Code: function_indices.last().cloned().unwrap_or(total - 1) -> idx 1.
-        let indices: Vec<usize> = manifest.block_outcomes.iter().map(|b| b.message_index).collect();
+        let indices: Vec<usize> = manifest
+            .block_outcomes
+            .iter()
+            .map(|b| b.message_index)
+            .collect();
         assert!(indices.contains(&1));
         assert!(!indices.contains(&0));
     }
@@ -3180,4 +3206,3 @@ mod openai_responses_tests {
         assert!(matches!(out, Err(LiveZoneError::NoMessagesArray)));
     }
 }
-

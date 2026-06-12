@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install git hooks for the Headroom repo:
-#   1. pre-commit  — repo pre-commit checks (ruff, mypy, sync-plugin-versions)
+#   1. pre-commit  — fast lint checks via hk (ruff, mypy, cargo fmt/clippy)
 #   2. pre-push    — full ci-precheck (cargo fmt/clippy/test + python suite)
 #
 # Why pre-push was added: the 2026-04-27 push hit five CI failures that could
@@ -75,22 +75,10 @@ echo "✅ installed: $HOOK_PATH"
 echo "   Runs 'make ci-precheck' before every git push."
 echo "   Bypass (use sparingly): git push --no-verify"
 
-# Install pre-commit hooks (repo checks on every commit).
-# Prefer the project venv over a global install so contributors always run the
-# pinned version. Resolution order: active $VIRTUAL_ENV → .venv → global PATH.
-PRE_COMMIT_BIN=""
-if [[ -n "${VIRTUAL_ENV:-}" && -x "${VIRTUAL_ENV}/bin/pre-commit" ]]; then
-    PRE_COMMIT_BIN="${VIRTUAL_ENV}/bin/pre-commit"
-elif [[ -x .venv/bin/pre-commit ]]; then
-    PRE_COMMIT_BIN=".venv/bin/pre-commit"
-elif command -v pre-commit &>/dev/null; then
-    PRE_COMMIT_BIN="pre-commit"
-fi
-
-if [[ -n "$PRE_COMMIT_BIN" ]]; then
-    "$PRE_COMMIT_BIN" install
-    echo "✅ installed: .git/hooks/pre-commit (repo pre-commit checks via pre-commit)"
+# Install pre-commit hooks via hk (fast lint checks on every commit).
+if command -v hk &>/dev/null; then
+    hk install
+    echo "✅ installed: .git/hooks/pre-commit (fast lint checks via hk)"
 else
-    echo "error: pre-commit not found — run 'pip install -e .[dev]' first, then re-run this script." >&2
-    exit 1
+    echo "warn: hk not found — skip pre-commit hook (install hk via mise or homebrew)" >&2
 fi

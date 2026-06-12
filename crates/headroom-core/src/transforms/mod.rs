@@ -39,8 +39,8 @@ pub use diff_compressor::{
     DiffCompressionResult, DiffCompressor, DiffCompressorConfig, DiffCompressorStats,
 };
 pub use live_zone::{
-    compress_anthropic_live_zone, compress_openai_chat_live_zone,
-    compress_openai_responses_live_zone, compress_gemini_live_zone, summarize_openai_responses_no_change_reason, AuthMode,
+    compress_anthropic_live_zone, compress_gemini_live_zone, compress_openai_chat_live_zone,
+    compress_openai_responses_live_zone, summarize_openai_responses_no_change_reason, AuthMode,
     BlockAction, BlockOutcome, CompressionManifest, ExclusionReason, LiveZoneError,
     LiveZoneOutcome,
 };
