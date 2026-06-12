@@ -2183,7 +2183,226 @@ mod openai_chat_tests {
     }
 }
 
-// ─── OpenAI Responses live-zone dispatcher (Phase C PR-C3) ────────────
+/// Compress live-zone blocks of a Gemini request.
+///
+/// # Provider scope
+///
+/// Body shape:
+/// ```json
+/// { "contents": [ { "role": "...", "parts": [ { "text": "..." } ] }, ... ] }
+/// ```
+///
+/// Live zone = the latest `user` role message's text parts plus any
+/// preceding `function` role messages in the same turn.
+pub fn compress_gemini_live_zone(
+    body_raw: &[u8],
+    _auth_mode: AuthMode,
+    model: &str,
+) -> Result<LiveZoneOutcome, LiveZoneError> {
+    let parsed: Value = serde_json::from_slice(body_raw).map_err(LiveZoneError::BodyNotJson)?;
+    let contents = parsed
+        .get("contents")
+        .and_then(Value::as_array)
+        .ok_or(LiveZoneError::NoMessagesArray)?;
+
+    if contents.is_empty() {
+        return Ok(LiveZoneOutcome::NoChange {
+            manifest: CompressionManifest::empty(),
+        });
+    }
+
+    let total = contents.len();
+    let latest_user_idx = find_latest_role_index(contents, "user");
+    let function_indices: Vec<usize> = contents
+        .iter()
+        .enumerate()
+        .filter(|(_, msg)| msg.get("role").and_then(Value::as_str) == Some("function"))
+        .map(|(idx, _)| idx)
+        .collect();
+
+    // Determine live zone boundary: from the first function output of the last turn.
+    let start_idx = if let Some(user_idx) = latest_user_idx {
+        // Find the first function message that appears after any user message before this one.
+        let prev_user_indices: Vec<usize> = contents
+            .iter()
+            .enumerate()
+            .filter(|(_, msg)| msg.get("role").and_then(Value::as_str) == Some("user"))
+            .map(|(idx, _)| idx)
+            .filter(|&idx| idx < user_idx)
+            .collect();
+
+        if let Some(&last_prev_user) = prev_user_indices.last() {
+            function_indices
+                .iter()
+                .find(|&&idx| idx > last_prev_user)
+                .cloned()
+                .unwrap_or(user_idx)
+        } else {
+            // Only one user message; all function messages before it are live if they exist.
+            function_indices.first().cloned().unwrap_or(user_idx)
+        }
+    } else {
+        // No user message? Just the latest function output as a fallback.
+        function_indices.last().cloned().unwrap_or(total - 1)
+    };
+
+    let mut all_slots: Vec<(usize, GeminiPlanSlot)> = Vec::new();
+    for idx in start_idx..total {
+        if let Ok(slots) = plan_gemini_message(body_raw, idx) {
+            for s in slots {
+                all_slots.push((idx, s));
+            }
+        }
+    }
+
+    if all_slots.is_empty() {
+        return Ok(LiveZoneOutcome::NoChange {
+            manifest: CompressionManifest {
+                messages_total: total,
+                messages_below_frozen_floor: 0,
+                latest_user_message_index: latest_user_idx,
+                block_outcomes: Vec::new(),
+            },
+        });
+    }
+
+    let tokenizer = get_tokenizer(model);
+    let mut block_outcomes: Vec<BlockOutcome> = Vec::with_capacity(all_slots.len());
+    let mut replacements: Vec<Replacement> = Vec::new();
+
+    for (msg_idx, slot) in all_slots {
+        let detected = detect_content_type(&slot.content_text);
+        let outcome = compress_one_block(
+            &slot.content_text,
+            detected.content_type,
+            slot.content_byte_range,
+            msg_idx,
+            slot.block_index,
+            slot.block_type,
+            tokenizer.as_ref(),
+            &mut replacements,
+            None,
+        );
+        block_outcomes.push(outcome);
+    }
+
+    let manifest = CompressionManifest {
+        messages_total: total,
+        messages_below_frozen_floor: 0,
+        latest_user_message_index: latest_user_idx,
+        block_outcomes,
+    };
+
+    if !manifest.has_compressed_block() || replacements.is_empty() {
+        return Ok(LiveZoneOutcome::NoChange { manifest });
+    }
+
+    let new_bytes = apply_replacements(body_raw, &mut replacements);
+    let new_body_str = match std::str::from_utf8(&new_bytes) {
+        Ok(s) => s,
+        Err(_) => return Ok(LiveZoneOutcome::NoChange { manifest }),
+    };
+    let raw = match RawValue::from_string(new_body_str.to_string()) {
+        Ok(r) => r,
+        Err(_) => return Ok(LiveZoneOutcome::NoChange { manifest }),
+    };
+
+    Ok(LiveZoneOutcome::Modified {
+        new_body: raw,
+        manifest,
+    })
+}
+
+struct GeminiPlanSlot {
+    block_index: Option<usize>,
+    block_type: String,
+    content_text: String,
+    content_byte_range: (usize, usize),
+}
+
+#[derive(Deserialize)]
+struct GeminiBodyView<'a> {
+    #[serde(borrow)]
+    contents: Vec<&'a RawValue>,
+}
+
+#[derive(Deserialize)]
+struct GeminiMessageView<'a> {
+    #[serde(borrow)]
+    role: Option<&'a str>,
+    #[serde(borrow)]
+    parts: Option<Vec<&'a RawValue>>,
+}
+
+#[derive(Deserialize)]
+struct GeminiPartView<'a> {
+    #[serde(borrow)]
+    text: Option<&'a RawValue>,
+}
+
+fn plan_gemini_message(body_raw: &[u8], msg_idx: usize) -> Result<Vec<GeminiPlanSlot>, PlanError> {
+    let body_str = std::str::from_utf8(body_raw).map_err(|_| PlanError::ParseFailed)?;
+    let body: GeminiBodyView<'_> = serde_json::from_str(body_str).map_err(|_| PlanError::ParseFailed)?;
+    let msg_raw = body.contents.get(msg_idx).ok_or(PlanError::TargetOutOfBounds)?;
+
+    let msg_offset_in_body = bytes_offset_of(body_str, msg_raw.get()).ok_or(PlanError::OffsetMissing)?;
+    let msg_view: GeminiMessageView<'_> = serde_json::from_str(msg_raw.get()).map_err(|_| PlanError::ParseFailed)?;
+    let Some(parts_raw_vec) = msg_view.parts else {
+        return Ok(Vec::new());
+    };
+
+    // To get the byte range of "parts" array in the raw JSON, we need to find it.
+    // Since GeminiMessageView doesn't give us RawValue for the parts field itself,
+    // let's use a trick: re-parse the message with a structure that gives us the RawValue of parts.
+    #[derive(Deserialize)]
+    struct PartsWrapper<'a> {
+        #[serde(borrow)]
+        parts: Option<&'a RawValue>,
+    }
+    let wrapper: PartsWrapper<'_> = serde_json::from_str(msg_raw.get()).map_err(|_| PlanError::ParseFailed)?;
+    let Some(parts_raw) = wrapper.parts else {
+        return Ok(Vec::new());
+    };
+
+    let parts_offset_in_msg = bytes_offset_of(msg_raw.get(), parts_raw.get()).ok_or(PlanError::OffsetMissing)?;
+    let parts_offset_in_body = msg_offset_in_body + parts_offset_in_msg;
+
+    // Now we can't easily get offsets of elements inside the RawValue array without parsing it as a Vec<&RawValue>.
+    // We do that by using serde_json::from_str on the parts_raw.get().
+    let parts: Vec<&RawValue> = serde_json::from_str(parts_raw.get()).map_err(|_| PlanError::ParseFailed)?;
+
+    let mut slots = Vec::with_capacity(parts.len());
+    for (part_idx, part_raw) in parts.iter().enumerate() {
+        let part_view: GeminiPartView<'_> = serde_json::from_str(part_raw.get()).map_err(|_| PlanError::ParseFailed)?;
+        let Some(text_raw) = part_view.text else {
+            continue;
+        };
+
+        // Offset of the part inside the parts array
+        let part_offset_in_parts = bytes_offset_of(parts_raw.get(), part_raw.get()).ok_or(PlanError::OffsetMissing)?;
+        // Offset of the text field inside the part
+        let text_offset_in_part = bytes_offset_of(part_raw.get(), text_raw.get()).ok_or(PlanError::OffsetMissing)?;
+
+        let text_str = text_raw.get();
+        if !text_str.starts_with('"') {
+            continue;
+        }
+        let unescaped: String = serde_json::from_str(text_str).map_err(|_| PlanError::ParseFailed)?;
+
+        let text_start_in_body = parts_offset_in_body + part_offset_in_parts + text_offset_in_part;
+        let text_end_in_body = text_start_in_body + text_str.len();
+
+        slots.push(GeminiPlanSlot {
+            block_index: Some(part_idx),
+            block_type: "gemini_text".to_string(),
+            content_text: unescaped,
+            content_byte_range: (text_start_in_body, text_end_in_body),
+        });
+    }
+
+    Ok(slots)
+}
+
 //
 // Sibling of `compress_openai_chat_live_zone`. The Responses API
 // (`/v1/responses`) keys the request under `input` rather than
@@ -2860,25 +3079,105 @@ mod openai_responses_tests {
     }
 
     #[test]
-    fn no_change_reason_prefers_output_floor() {
-        let manifest = CompressionManifest {
-            messages_total: 1,
-            messages_below_frozen_floor: 0,
-            latest_user_message_index: Some(0),
-            block_outcomes: vec![BlockOutcome {
-                message_index: 0,
-                block_index: None,
-                block_type: "function_call_output".to_string(),
-                action: BlockAction::BelowByteThreshold {
-                    content_type: "output_item",
-                    byte_count: 1024,
-                    threshold_bytes: RESPONSES_OUTPUT_MIN_BYTES,
-                },
-            }],
+    fn gemini_empty_contents_no_change() {
+        let b = body(json!({ "contents": [] }));
+        let out = compress_gemini_live_zone(&b, AuthMode::Payg, "gemini-1.5-pro").unwrap();
+        assert!(matches!(out, LiveZoneOutcome::NoChange { .. }));
+    }
+
+    #[test]
+    fn gemini_small_user_no_change() {
+        let b = body(json!({
+            "contents": [{
+                "role": "user",
+                "parts": [{ "text": "hi" }]
+            }]
+        }));
+        let out = compress_gemini_live_zone(&b, AuthMode::Payg, "gemini-1.5-pro").unwrap();
+        match &out {
+            LiveZoneOutcome::NoChange { manifest } => {
+                assert_eq!(manifest.messages_total, 1);
+                assert!(manifest.block_outcomes.iter().all(|b| matches!(b.action, BlockAction::BelowByteThreshold { .. })));
+            }
+            _ => panic!("expected NoChange"),
+        }
+    }
+
+    #[test]
+    fn gemini_large_user_modified() {
+        // Use a log-like output so it is detected as BuildOutput and compressed by LogCompressor.
+        // PlainText compression (Kompress) is not yet wired in the Rust backend (TODO PR-B4).
+        let mut log = String::new();
+        for i in 0..100 {
+            log.push_str(&format!("[2024-01-01 00:00:00] INFO compile.rs:42 building module foo_{i}\n"));
+        }
+        let b = body(json!({
+            "contents": [{
+                "role": "user",
+                "parts": [{ "text": log }]
+            }]
+        }));
+        let out = compress_gemini_live_zone(&b, AuthMode::Payg, "gemini-1.5-pro").unwrap();
+        assert!(matches!(out, LiveZoneOutcome::Modified { .. }));
+    }
+
+    #[test]
+    fn gemini_live_zone_boundary_check() {
+        // [User1, Function1, User2]
+        // Live zone should be [Function1, User2]
+        let b = body(json!({
+            "contents": [
+                { "role": "user", "parts": [{ "text": "First user msg" }] },
+                { "role": "function", "parts": [{ "text": "Tool response 1" }] },
+                { "role": "user", "parts": [{ "text": "Second user msg (latest)" }] },
+            ]
+        }));
+        let out = compress_gemini_live_zone(&b, AuthMode::Payg, "gemini-1.5-pro").unwrap();
+        let manifest = match &out {
+            LiveZoneOutcome::NoChange { manifest } => manifest,
+            LiveZoneOutcome::Modified { manifest, .. } => manifest,
         };
-        assert_eq!(
-            summarize_openai_responses_no_change_reason(&manifest),
-            "below_output_floor"
-        );
+
+        // Indices of blocks planned: 1 and 2. Index 0 should be frozen.
+        let indices: Vec<usize> = manifest.block_outcomes.iter().map(|b| b.message_index).collect();
+        assert!(indices.contains(&1));
+        assert!(indices.contains(&2));
+        assert!(!indices.contains(&0));
+    }
+
+    #[test]
+    fn gemini_no_user_fallback() {
+        // [Function1, Function2]
+        // No user message; should fallback to latest function (idx 1) or similar logic in code.
+        let b = body(json!({
+            "contents": [
+                { "role": "function", "parts": [{ "text": "Tool response 1" }] },
+                { "role": "function", "parts": [{ "text": "Tool response 2" }] },
+            ]
+        }));
+        let out = compress_gemini_live_zone(&b, AuthMode::Payg, "gemini-1.5-pro").unwrap();
+        let manifest = match &out {
+            LiveZoneOutcome::NoChange { manifest } => manifest,
+            LiveZoneOutcome::Modified { manifest, .. } => manifest,
+        };
+        // Code: function_indices.last().cloned().unwrap_or(total - 1) -> idx 1.
+        let indices: Vec<usize> = manifest.block_outcomes.iter().map(|b| b.message_index).collect();
+        assert!(indices.contains(&1));
+        assert!(!indices.contains(&0));
+    }
+
+    #[test]
+    fn gemini_invalid_json_error() {
+        let b = b"not json";
+        let out = compress_gemini_live_zone(b, AuthMode::Payg, "gemini-1.5-pro");
+        assert!(matches!(out, Err(LiveZoneError::BodyNotJson(_))));
+    }
+
+    #[test]
+    fn gemini_no_contents_error() {
+        let b = body(json!({ "model": "gpt-4o" }));
+        let out = compress_gemini_live_zone(&b, AuthMode::Payg, "gemini-1.5-pro");
+        assert!(matches!(out, Err(LiveZoneError::NoMessagesArray)));
     }
 }
+

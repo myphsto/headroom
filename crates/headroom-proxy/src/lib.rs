@@ -6,6 +6,7 @@ pub mod cache_stabilization;
 pub mod compression;
 pub mod config;
 pub mod error;
+pub mod gemini;
 pub mod handlers;
 pub mod headers;
 pub mod health;
