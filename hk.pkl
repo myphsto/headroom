@@ -3,11 +3,10 @@ import "package://github.com/jdx/hk/releases/download/v1.48.0/hk@1.48.0#/Builtin
 
 local linters = new Mapping<String, Step> {
     ["ruff"] = Builtins.ruff
-    // Or define custom steps:
-    // ["custom"] {
-    //     glob = "**/*.py"
-    //     check = "mypy {{ files }}"
-    // }
+    ["ruff_format"] = Builtins.ruff_format
+    ["mypy"] = Builtins.mypy
+    ["cargo_fmt"] = Builtins.cargo_fmt
+    ["cargo_clippy"] = Builtins.cargo_clippy
 }
 
 hooks {
