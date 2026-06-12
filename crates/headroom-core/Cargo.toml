@@ -125,7 +125,7 @@ http = "1"
 [target.'cfg(not(windows))'.dependencies]
 fastembed = { version = "5", default-features = false, features = [
     "hf-hub-rustls-tls",
-    "ort-download-binaries-rustls-tls",
+    "ort-load-dynamic",
     "image-models",
 ] }
 
