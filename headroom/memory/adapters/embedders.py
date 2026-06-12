@@ -13,16 +13,30 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import warnings
+from concurrent.futures import ThreadPoolExecutor
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
 from headroom.models.config import ML_MODEL_DEFAULTS
-from headroom.onnx_runtime import create_cpu_session_options
+from headroom.onnx_runtime import create_cpu_session_options, hf_hub_download_local_first
 
 if TYPE_CHECKING:
     from sentence_transformers import SentenceTransformer
+
+# Suppress HuggingFace Hub warnings about missing tokens and rate limits.
+# These appear whenever hf_hub_download is called without HF_TOKEN set.
+# We operate in an authenticated-optional mode; warnings are not actionable.
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+os.environ.setdefault("HF_HUB_DISABLE_IMPLICIT_TOKEN", "1")
+warnings.filterwarnings("ignore", category=UserWarning, module="huggingface_hub")
+# Also silence the huggingface_hub logger which emits rate-limit advisory messages.
+logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
+# sentence_transformers uses httpx to check model file manifests on every startup.
+# These HEAD/GET requests generate INFO lines per worker; suppress to WARNING.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +124,10 @@ class LocalEmbedder:
         self._device: str | None = None
         self._dimension: int | None = None
         self._lock = asyncio.Lock()
+        # Dedicated single-worker executor, created only when the resolved device
+        # is MPS (see _load_model). torch-MPS is not thread-safe, so every encode()
+        # must run on one thread. Stays None for CPU/CUDA → default shared executor.
+        self._executor: ThreadPoolExecutor | None = None
 
     def _check_dependencies(self) -> None:
         """Check that required dependencies are installed."""
@@ -153,6 +171,13 @@ class LocalEmbedder:
         else:
             self._device = self._detect_device()
 
+        # torch-MPS is not thread-safe: concurrent encode() calls from the default
+        # multi-worker executor abort with "commit an already committed command
+        # buffer" (verified). Funnel every encode through one worker thread when on
+        # MPS so calls serialize; other devices keep the shared default executor.
+        if self._device == "mps" and self._executor is None:
+            self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mps-embed")
+
         # Use centralized registry for shared model instances
         self._model = MLModelRegistry.get_sentence_transformer(self._model_name, self._device)
 
@@ -186,7 +211,7 @@ class LocalEmbedder:
         model = self._model  # Local reference for lambda closure
         loop = asyncio.get_event_loop()
         embedding = await loop.run_in_executor(
-            None,
+            self._executor,
             lambda: model.encode(text, convert_to_numpy=True, normalize_embeddings=False),
         )
 
@@ -229,7 +254,7 @@ class LocalEmbedder:
             model = self._model  # Local reference for lambda closure
             loop = asyncio.get_event_loop()
             embeddings = await loop.run_in_executor(
-                None,
+                self._executor,
                 lambda: model.encode(
                     non_empty_texts, convert_to_numpy=True, normalize_embeddings=False
                 ),
@@ -263,9 +288,14 @@ class LocalEmbedder:
         return self.DEFAULT_MAX_TOKENS
 
     async def close(self) -> None:
-        """Close resources (no-op for local embedder)."""
-        # LocalEmbedder doesn't hold persistent connections
-        pass
+        """Close resources: shut down the MPS serialization executor and drop the
+        cached model reference so a later embed() fully re-initializes (and
+        re-creates the serialized executor) instead of encoding on a torn-down pool.
+        """
+        if self._executor is not None:
+            self._executor.shutdown(wait=False)
+            self._executor = None
+        self._model = None
 
 
 # =============================================================================
@@ -305,13 +335,13 @@ class OnnxLocalEmbedder:
             return
 
         import onnxruntime as ort
-        from huggingface_hub import hf_hub_download
         from tokenizers import Tokenizer
 
         logger.info("Loading ONNX embedding model (all-MiniLM-L6-v2, ~86MB)...")
 
-        model_path = hf_hub_download(self.ONNX_REPO, "model.onnx")
-        tok_path = hf_hub_download(self.ONNX_REPO, "tokenizer.json")
+        # Prefer local cache to avoid a redundant network HEAD on warm starts.
+        model_path = hf_hub_download_local_first(self.ONNX_REPO, "model.onnx")
+        tok_path = hf_hub_download_local_first(self.ONNX_REPO, "tokenizer.json")
 
         # Keep a small thread pool for Docker compatibility and disable ORT's
         # CPU memory arena/pattern caches so long-running proxy workers do not

@@ -9,6 +9,8 @@ import shlex
 import shutil
 import subprocess
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from hashlib import sha1
 from pathlib import Path
 from typing import Any
@@ -29,7 +31,9 @@ from headroom.install.providers import (
     _apply_windows_env_scope,
 )
 from headroom.install.runtime import (
+    acquire_runtime_start_lock,
     resolve_headroom_command,
+    runtime_status,
     start_detached_agent,
     start_persistent_docker,
     stop_runtime,
@@ -58,6 +62,7 @@ _CODEX_FEATURE_MARKER_END = "# --- end Headroom init features ---"
 _SUPPORTED_TARGETS = ("claude", "copilot", "codex", "openclaw", "opencode", "gemini", "windsurf")
 _LOCAL_TARGETS = {"claude", "codex", "opencode", "windsurf"}
 _GLOBAL_TARGETS = {"claude", "copilot", "codex", "openclaw", "opencode", "gemini", "windsurf"}
+_STARTUP_READY_TIMEOUT_SECONDS = 15
 
 
 def _detect_opencode_openai_url() -> str | None:
@@ -90,6 +95,9 @@ def _detect_opencode_openai_url() -> str | None:
 
 def _command_string(parts: list[str]) -> str:
     if os.name == "nt":
+        # Normalize backslash paths to forward slashes so hook commands
+        # work when Claude Code executes them via Git Bash (#724).
+        parts = [p.replace("\\", "/") for p in parts]
         return subprocess.list2cmdline(parts)
     return shlex.join(parts)
 
@@ -685,22 +693,54 @@ def _install_copilot_marketplace() -> None:
     )
 
 
+@contextmanager
+def _suppress_hook_output() -> Iterator[None]:
+    """Keep best-effort hook recovery from emitting invalid hook output."""
+    stdout_fd = os.dup(1)
+    stderr_fd = os.dup(2)
+    try:
+        with open(os.devnull, "w", encoding="utf-8") as devnull:
+            sys.stdout.flush()
+            sys.stderr.flush()
+            os.dup2(devnull.fileno(), 1)
+            os.dup2(devnull.fileno(), 2)
+            with redirect_stdout(devnull), redirect_stderr(devnull):
+                yield
+    finally:
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os.dup2(stdout_fd, 1)
+        os.dup2(stderr_fd, 2)
+        os.close(stdout_fd)
+        os.close(stderr_fd)
+
+
 def _ensure_profile_running(profile: str) -> None:
     manifest = load_manifest(profile)
     if manifest is None:
         return
-    if wait_ready(manifest, timeout_seconds=1):
-        return
-    try:
-        if manifest.preset == InstallPreset.PERSISTENT_DOCKER.value:
-            start_persistent_docker(manifest)
-        elif manifest.supervisor_kind == SupervisorKind.SERVICE.value:
-            start_supervisor(manifest)
-        else:
-            start_detached_agent(manifest.profile)
-        wait_ready(manifest, timeout_seconds=45)
-    except Exception:
-        return
+    with _suppress_hook_output():
+        if wait_ready(manifest, timeout_seconds=1):
+            return
+        try:
+            with acquire_runtime_start_lock(manifest.profile) as acquired:
+                if not acquired:
+                    return
+                if wait_ready(manifest, timeout_seconds=1):
+                    return
+                if runtime_status(manifest) == "running":
+                    if wait_ready(manifest, timeout_seconds=_STARTUP_READY_TIMEOUT_SECONDS):
+                        return
+                    stop_runtime(manifest)
+                if manifest.preset == InstallPreset.PERSISTENT_DOCKER.value:
+                    start_persistent_docker(manifest)
+                elif manifest.supervisor_kind == SupervisorKind.SERVICE.value:
+                    start_supervisor(manifest)
+                else:
+                    start_detached_agent(manifest.profile)
+                wait_ready(manifest, timeout_seconds=45)
+        except Exception:
+            return
 
 
 def _probe_init_targets(global_scope: bool) -> list[tuple[str, str | None]]:

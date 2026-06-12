@@ -128,7 +128,7 @@ class CompressConfig:
 
     # Model variant
     kompress_model: str | None = None
-    """Kompress model ID. None = default (chopratejas/kompress-base).
+    """Kompress model ID. None = default (chopratejas/kompress-v2-base).
     Set to a HuggingFace model ID for domain-specific compression.
     Set to 'disabled' to skip ML compression entirely
     (only SmartCrusher + CacheAligner will run)."""
@@ -251,6 +251,24 @@ def compress(
         tokens_before = result.tokens_before
         tokens_after = result.tokens_after
         compressed_messages = result.messages
+
+        # Guard: if "optimization" inflated tokens, revert to originals.
+        # Mirrors the inflation guards in the proxy handlers
+        # (anthropic/openai/gemini/batch) — the library path had none.
+        if tokens_after > tokens_before:
+            logger.warning(
+                "Optimization inflated tokens (%d -> %d); reverting to original messages",
+                tokens_before,
+                tokens_after,
+            )
+            return CompressResult(
+                messages=messages,
+                tokens_before=tokens_before,
+                tokens_after=tokens_before,
+                tokens_saved=0,
+                compression_ratio=0.0,
+                transforms_applied=["inflation_guard:reverted"],
+            )
 
         routing_markers = summarize_routing_markers(result.transforms_applied)
         if routing_markers:
